@@ -3,7 +3,7 @@
 
 #include "triangulation.h"
 #include "enumerators.h"
-#include "shapes.h"
+#include "GeometricKernel.h"
 
 #include "gnuplot.h"
 
@@ -53,8 +53,8 @@ bool v_compare_y(Vertex * const v1, Vertex * const v2) {
 bool e_compare_x(Edge * const e1, Edge * const e2) {
 
 
-	double const e1_min = std::fmin(e1->a->x, e1->b->x);
-	double const e2_min = std::fmin(e2->a->x, e2->b->x);
+	double const e1_min = std::fmin(e1->vertices[0]->x, e1->vertices[1]->x);
+	double const e2_min = std::fmin(e2->vertices[0]->x, e2->vertices[1]->x);
 
 	return e1_min < e2_min;
 
@@ -62,21 +62,21 @@ bool e_compare_x(Edge * const e1, Edge * const e2) {
 bool e_compare_y(Edge * const e1, Edge * const e2) {
 
 
-	double const e1_min = std::fmin(e1->a->y, e1->b->y);
-	double const e2_min = std::fmin(e2->a->y, e2->b->y);
+	double const e1_min = std::fmin(e1->vertices[0]->y, e1->vertices[1]->y);
+	double const e2_min = std::fmin(e2->vertices[0]->y, e2->vertices[1]->y);
 
 	return e1_min < e2_min;
 
 };
 
 
-bool marker_compare_neumann(Edge * const e1, Edge * const e2) {
+bool marker_compare_Neumann(Edge * const e1, Edge * const e2) {
 
 
-	E_MARKER const e1_m = e1->marker;
-	E_MARKER const e2_m = e2->marker;
+	MarkerEdge const e1_m = e1->marker;
+	MarkerEdge const e2_m = e2->marker;
 
-	if (e1_m == E_MARKER::NEUMANN && e2_m != E_MARKER::NEUMANN)
+	if (e1_m == MarkerEdge::Neumann && e2_m != MarkerEdge::Neumann)
 		return true;
 	
 	return false;
@@ -85,10 +85,10 @@ bool marker_compare_neumann(Edge * const e1, Edge * const e2) {
 bool marker_compare_dirichlet(Edge * const e1, Edge * const e2) {
 
 
-	E_MARKER const e1_m = e1->marker;
-	E_MARKER const e2_m = e2->marker;
+	MarkerEdge const e1_m = e1->marker;
+	MarkerEdge const e2_m = e2->marker;
 
-	if (e1_m == E_MARKER::DIRICHLET && e2_m != E_MARKER::DIRICHLET)
+	if (e1_m == MarkerEdge::Dirichlet && e2_m != MarkerEdge::Dirichlet)
 		return true;
 
 	return false;
@@ -194,8 +194,8 @@ Mesh::Mesh(Triangulation<GK> & triangulation) {
 	std::stable_sort(edges.begin(), edges.begin() + num_dirichlet, e_compare_x);
 	std::stable_sort(edges.begin(), edges.begin() + num_dirichlet, e_compare_y);
 	//
-	//std::stable_sort(edges.begin(), edges.end(), marker_compare_neumann);
-	std::stable_sort(edges.begin() + num_dirichlet, edges.end(), marker_compare_neumann);
+	//std::stable_sort(edges.begin(), edges.end(), marker_compare_Neumann);
+	std::stable_sort(edges.begin() + num_dirichlet, edges.end(), marker_compare_Neumann);
 	std::stable_sort(edges.begin() + num_dirichlet, edges.begin() + num_neumann + num_dirichlet, e_compare_x);
 	std::stable_sort(edges.begin() + num_dirichlet, edges.begin() + num_neumann + num_dirichlet, e_compare_y);
 	//
@@ -203,7 +203,7 @@ Mesh::Mesh(Triangulation<GK> & triangulation) {
 	std::stable_sort(edges.begin() + num_neumann + num_dirichlet, edges.end(), e_compare_y);
 
 	//for (size_t i = 0; i < edges.size(); i++)
-	//	if (edges[i]->marker == E_MARKER::NEUMANN)
+	//	if (edges[i]->marker == MarkerEdge::Neumann)
 	//		cout << 1 << endl;
 	//	else
 	//		cout << 0 << endl;
@@ -222,7 +222,7 @@ Mesh::Mesh(Triangulation<GK> & triangulation) {
 	std::cout << std::count_if(edges.begin(), edges.end(), [](auto e) {return e->is_constrained; }) << std::endl;
 
 	std::cout << "Number of constrained vertices : ";
-	std::cout << std::count_if(vertices.begin(), vertices.end(), [](auto v) {return v->marker == V_MARKER::CONSTRAINED; }) << std::endl;
+	std::cout << std::count_if(vertices.begin(), vertices.end(), [](auto v) {return v->marker == MarkerVertex::Constrained; }) << std::endl;
 
 	//std::cout << "\nNumber of vertices on the boundary : ";
 	//std::cout << std::count_if(is_on_boundary_vertices.begin(), is_on_boundary_vertices.end(), [](auto it) {return (it); }) << std::endl;

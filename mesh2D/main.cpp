@@ -1,11 +1,53 @@
 
 
-#include "shapes.h"
+/*****************************************************************************/
+/*                                                                           */
+/*	- To Consider															 */
+/*                                                                           */
+/*****************************************************************************/
+// -Precomputing determinants can be made with additional data struture, that will be deleted after triangulation = > no additional memory is consumed
+// - Implement 'infinite bounding triangle'
+// - My idiotic solution : if the input vertice is outside bounding triangle->make the triangle inflate.We have to check coordinates of each inserted point : (
+// - Verify my triangulation with matlab's -> generate same points and compare 
+// - Barycentric refinment(subdivision)
+// - Try to normalize given PSLG onto[0, 1] x[0, 1] for better accuracy.new_x = (old_x - min_x) / d_max, new_y = (old_y - min_y) / d_max, d_max = max{ x_max - x_min,y_max - y_min }
+// - make laplacian smoothing similiar to the book of 'Jiri Blazek - Computational Fluid Dynamics_ Principles and Applications (2015, Butterworth-Heinemann)' p. 394 / 388
+// - Barycentric smoothing, cotangents wights smoothing
 
-#include "PSLG.h"
-#include "triangulation.h"
 
-#include "mesh.h"
+/*****************************************************************************/
+/*                                                                           */
+/*	- To Check																 */
+/*                                                                           */
+/*****************************************************************************/
+// - In GeometricKernel::GeometricPredicates in_circle_robust ->at the bottom there is conditioi for zero determinant (in shewchuck, there is not) Check wether both with it and without gives the same result
+// - Function Two_One_Diff There is really Two_Sum. Check this in Shewchuck paper, if there is really this one;
+// - Be careful in ShewChuk's Fast expasion sum etc. There are static keywords. Better watch out so I don't break something
+// - Discarded the check for CCW position of vertices from constructing triangle. Hope it will not break
+// - In insert_contraint chcek the validity of initilizing step and compare those two algorithm I have there
+
+
+/*****************************************************************************/
+/*                                                                           */
+/*	- To do																	 */
+/*                                                                           */
+/*****************************************************************************/
+// - Make all the methods in trinagle, vertex, edge pass the argument as reference, so no copies are performed !!!!! It should be much faster
+// - Get rid of  erase vector method when removing triangles,edges,vertice. It so so slow. Every time, it shift all the elements resp. reallocate all the elements !!! Use my method replace instead
+// - Run tests for orientaion and incircle so that the adapt is uses. because there are variables which may/should be declared as volatile, because of some 
+//   optimization issues. INEXACT == volatile in Shewchuk triangle. those varibale are u3-u[3], B3-B[3] etc.
+// - Implement on_edge_adapt
+// - Try to make the conatiner with primitives as lists and do some benchmarks in comparison with vector
+// - Some additional data structure in geometric primitives (such as pointer to the neighboring triangle in the case of the vertex) maybe put in separte container in the triangulation
+// - function 'refine_mesh(max_number_of_steiner_points = finite/as it needs)' -> parameter max_number_of_steiner_points input in constructor, or later? If later there can be no estimates for number of triangles
+// - Walking algorithm starts not from the back, but from random set of vertices. The vertices adjacent trinagle whose veretx is the closest to the new point is selected
+// - Do not create edges immedietelly but as the last step. It will simplify everything (should). And should increae speed
+
+
+#include "GeometricKernel.h"
+#include "Triangulation.h"
+
+//#include "mesh.h"
 #include "gnuplot.h"
 
 
@@ -14,45 +56,32 @@
 #include <ctime>
 #include <algorithm>
 #include <random>
-
 #include <vector>
-
 #include <iomanip>
 
 
+enum Generation { Random, Structured };
 
-GEOMETRIC_KERNEL const GK = GEOMETRIC_KERNEL::INEXACT_PREDICATES_INEXACT_CONSTRUCT;
-CHECK_KERNEL const CK = CHECK_KERNEL::CHECK_DUPLICATE;
-
-
-
-
-enum GENERATION { RANDOM, STRUCTURED };
-
-template<GENERATION gen>
-void generate_vertices(std::vector<Vertex > & v);
+template<Generation gen>
+void generate_vertices(std::vector<GeometricKernel::Vertex > & v);
 
 
 
 
-//const double a1 = -0.2;
-//const double b1 = 1.2;
-//
-//const double a2 = -0.05;
-//const double b2 = 0.2;
+const double a1 = 0.0;
+const double b1 = 10.0;
 
-const double a1 = -25.0;
-const double b1 = 25.0;
-
-const double a2 = -25.0;
-const double b2 = 25.0;
-
-const int N1 = 40;// 87;
-const int N2 = 40;// 157;
-
-const int N_random = 200;
+const double a2 = 0.0;
+const double b2 = 10.0;
 
 
+const int N1 = 70;
+const int N2 = 80;
+
+const int N_random = 10000;
+
+
+using namespace DelaunayTriangulation;
 
 
 int main() {
@@ -60,23 +89,120 @@ int main() {
 
 	PlanarStraightLineGraph pslg;
 
+	std::vector<Vertex> vertices;
+	std::vector<Vertex> seeds;
+
+
+	/*****************************************************************************/
+	/*                                                                           */
+	/*		Generate and insert vertices										 */
+	/*																			 */
+	/*****************************************************************************/
+	//generate_vertices<Random>(vertices);
+	generate_vertices<Structured>(vertices);
+
+	for (size_t i = 0; i < vertices.size(); i++)
+		pslg.insert_vertex<MarkerVertex::Constrained>(vertices[i]);
+
+
+	/*****************************************************************************/
+	/*                                                                           */
+	/*		Insert constraints													 */
+	/*																			 */
+	/*****************************************************************************/
+	v_pointer const va = pslg.get_vertex_pointer(0);
+	v_pointer const vb = pslg.get_vertex_pointer(N2 - 1);
+	v_pointer const vc = pslg.get_vertex_pointer(N1*N2 - 1);
+	v_pointer const vd = pslg.get_vertex_pointer(N1*N2 - 1 - (N2 - 1));
+	v_pointer const ve = pslg.get_vertex_pointer(0);
+
+	pslg.insert_constraint<MarkerEdge::Dirichlet>(va, vb);
+	pslg.insert_constraint<MarkerEdge::Dirichlet>(vb, vc);
+	pslg.insert_constraint<MarkerEdge::Dirichlet>(vc, vd);
+	pslg.insert_constraint<MarkerEdge::Dirichlet>(vd, ve);
+
+	unsigned const n1 = 100;
+	double const r1 = 2.5;
+
+	for (unsigned i = 0; i < n1; i++) {
+
+		double const u1 = i * 2.0 * Pi / n1;
+		double const u2 = (i + 1) * 2.0 * Pi / n1;
+
+		v_pointer const a = pslg.insert_vertex<MarkerVertex::Free>(Vertex(r1*sin(u1) + 7.0, r1*cos(u1) + 5.0));
+		v_pointer const b = pslg.insert_vertex<MarkerVertex::Free>(Vertex(r1*sin(u2) + 7.0, r1*cos(u2) + 5.0));
+
+		pslg.insert_constraint<MarkerEdge::Dirichlet>(a, b);
+
+	}
+
+	seeds.push_back(Vertex(5.0, 5.0));
+
+
+
+	unsigned const n2 = 100;
+	double const r2 = 1.5;
+
+	for (unsigned i = 0; i < n2; i++) {
+
+		double const u1 = i * 2.0 * Pi / n1;
+		double const u2 = (i + 1) * 2.0 * Pi / n1;
+
+		v_pointer const a = pslg.insert_vertex<MarkerVertex::Free>(Vertex(r2*sin(u1) + 2.0, r2*cos(u1) + 5.0));
+		v_pointer const b = pslg.insert_vertex<MarkerVertex::Free>(Vertex(r2*sin(u2) + 2.0, r2*cos(u2) + 5.0));
+
+		pslg.insert_constraint<MarkerEdge::Dirichlet>(a, b);
+
+	}
+
+	seeds.push_back(Vertex(2.0, 5.0));
+
+
+	/*****************************************************************************/
+	/*                                                                           */
+	/*		Compute Constrained triangulation									 */
+	/*																			 */
+	/*****************************************************************************/
+	clock_t const begin = clock();
+	IncrementalTriangulation<GeometricPredicatesArithmetic::Robust> cdt(pslg, seeds);
+	clock_t const end = clock();
+
+	std::cout << std::endl << "CPU clocks : " << (end - begin) << std::endl << std::endl;
+
+
+	/*****************************************************************************/
+	/*                                                                           */
+	/*		Export triangulation primitives										 */
+	/*																			 */
+	/*****************************************************************************/
+	std::string verticesFile	= "C:\\Users\\pgali\\Desktop\\verticesPoints.txt";
+	std::string edgesFile		= "C:\\Users\\pgali\\Desktop\\edgesPoints.txt";
+	std::string trianglesFile	= "C:\\Users\\pgali\\Desktop\\trianglesPoints.txt";
+
+	std::cout << std::endl << "Exporting files ...\n" << std::endl;
+
+	cdt.export_vertices(verticesFile);
+	cdt.export_edges(edgesFile);
+	cdt.export_triangles(trianglesFile);
+
+
+	//GNUPLOT gnuplot;
+	//gnuplot("plot 'C:\\Users\\pgali\\Desktop\\trianglesPoints.txt' with lines");
+	////gnuplot("plot 'C:\\Users\\pgali\\Desktop\\triangles_txt_files\\trianglesPoints.txt' with lines");
+
+
+
+	system("pause");
+
+	return 0; 
 
 
 	/*
-
-	std::vector<Vertex> vertices;
-	generate_vertices<RANDOM>(vertices);
-
-	for (size_t i = 0; i < vertices.size(); i++)
-		pslg.insert_vertex<V_MARKER::FREE>(vertices[i]);
-
 
 	//v_pointer va = pslg.insert_vertex<V_MARKER::CONSTRAINED>(Vertex(a1, a2));
 	//v_pointer vb = pslg.insert_vertex<V_MARKER::CONSTRAINED>(Vertex(a1, b2));
 	//v_pointer vc = pslg.insert_vertex<V_MARKER::CONSTRAINED>(Vertex(b1, b2));
 	//v_pointer vd = pslg.insert_vertex<V_MARKER::CONSTRAINED>(Vertex(b1, a2));
-
-
 
 	//v_pointer vaa = pslg.insert_vertex<V_MARKER::CONSTRAINED>(Vertex(-5.0, -20.0));
 	//v_pointer vbb = pslg.insert_vertex<V_MARKER::CONSTRAINED>(Vertex(-5.0, -15.0));
@@ -108,154 +234,43 @@ int main() {
 	//pslg.insert_constraint<E_MARKER::NEUMANN>(va, vaa);
 	//pslg.insert_constraint<E_MARKER::DIRICHLET>(vd, vdd);
 
-	//unsigned const n1 = 100;
-
-	//double r1 = 11.0;
-
-	//for (unsigned i = 0; i < n1; i++) {
-
-	//	double u1 = i * 2.0 * Pi / n1;
-	//	double u2 = (i + 1) * 2.0 * Pi / n1;
-
-
-	//	v_pointer a = pslg.insert_vertex<V_MARKER::FREE>(Vertex(r1*sin(u1), 1.0*r1*cos(u1)));
-	//	v_pointer b = pslg.insert_vertex<V_MARKER::FREE>(Vertex(r1*sin(u2), 1.0*r1*cos(u2)));
-
-	//	pslg.insert_constraint<E_MARKER::DIRICHLET>(a, b);
-
-	//}
-
-	//unsigned const n = 50;
-
-	//double r = 6.0;
-
-	//for (unsigned i = 0; i < n; i++) {
-
-	//	double u1 = i * 2.0 * Pi / n;
-	//	double u2 = (i + 1) * 2.0 * Pi / n;
-
-	//	double r = 6.0;
-
-
-	//	v_pointer a = pslg.insert_vertex<V_MARKER::FREE>(Vertex(r*sin(u1), 1.5*r*cos(u1)));
-	//	v_pointer b = pslg.insert_vertex<V_MARKER::FREE>(Vertex(r*sin(u2), 1.5*r*cos(u2)));
-
-	//	pslg.insert_constraint<E_MARKER::DIRICHLET>(a, b);
-
-	//}
-
-
-
-	//v_pointer ve = pslg.insert_vertex<V_MARKER::FREE>(Vertex(a1 + 5.0, a2 + 5.0));
-	//v_pointer vf = pslg.insert_vertex<V_MARKER::FREE>(Vertex(a1 + 5.0, b2 - 5.0));
-	//v_pointer vg = pslg.insert_vertex<V_MARKER::FREE>(Vertex(b1 - 5.0, b2 - 5.0));
-	//v_pointer vh = pslg.insert_vertex<V_MARKER::FREE>(Vertex(b1 - 5.0, a1 + 5.0));
-
-	//pslg.insert_constraint<E_MARKER::NEUMANN>(ve, vf);
-	//pslg.insert_constraint<E_MARKER::NEUMANN>(vf, vg);
-	//pslg.insert_constraint<E_MARKER::NEUMANN>(vg, vh);
-	//pslg.insert_constraint<E_MARKER::NEUMANN>(vh, ve);
-
-	//pslg.insert_constraint<E_MARKER::NEUMANN>(va, vg);
-
-
-	//pslg.insert_constraint<E_MARKER::DIRICHLET>(va, vb);
-	//pslg.insert_constraint<E_MARKER::DIRICHLET>(vb, vc);
-	//pslg.insert_constraint<E_MARKER::DIRICHLET>(vc, vd);
-	//pslg.insert_constraint<E_MARKER::DIRICHLET>(vd, va);
-
-
-	std::vector<Vertex> seeds;
-
-	//seeds.push_back(Vertex(8.5, 0.1));
-	//seeds.push_back(Vertex(0.0, -16.0));
-
-
-
-	clock_t begin = clock();
-
-	Triangulation<GK> tri(pslg, seeds);
-
-	//tri.refinement_ruppert<REFINEMENT_PRIORITY::WORST>(32.0, 0.0005);
-
-
-	clock_t end = clock();
-
-	Mesh mesh(tri);
-
-
-	cout << "*************** Triangulation ***************" << endl;
-	cout << tri.get_number_of_vertices() << endl;
-	cout << tri.get_number_of_edges() << endl;
-	cout << tri.get_number_of_triangles() << endl;
-	cout << "*********************************************" << endl;
-
-
-	std::ofstream vertices_txt;
-	std::ofstream edges_txt;
-	std::ofstream triangles_txt;
-
-
-	std::cout << std::endl << "Creating files" << std::endl;
-
-	std::cout << "Vertices..." << std::endl;
-	vertices_txt.open("C:\\Users\\pgali\\Desktop\\verticesPoints.txt");
-	mesh.export_vertices(vertices_txt);
-	vertices_txt.close();
-
-	std::cout << "Triangles..." << std::endl;
-	triangles_txt.open("C:\\Users\\pgali\\Desktop\\trianglesPoints.txt");
-	mesh.export_triangles(triangles_txt);
-	triangles_txt.close();
-
-	std::cout << "Edges..." << std::endl << std::endl;
-	edges_txt.open("C:\\Users\\pgali\\Desktop\\edgesPoints.txt");
-	mesh.export_edges(edges_txt);
-	edges_txt.close();
 	*/
 
-
-
-	std::vector<Vertex > vertices;
-	std::vector<Vertex> seeds;
 
 	//std::vector<Vertex > hole1;
 	//std::vector<Vertex > hole2;
 	//std::vector<Vertex > hole3;
 	//std::vector<Vertex > hole4;
 	//std::vector<Vertex > hole5;
-
-	generate_vertices<RANDOM>(vertices);
-	//generate_vertices<STRUCTURED>(vertices);
-
-
+	//
+	//
 	//unsigned n1 = 5;
 	//unsigned n2 = 30;
 	//unsigned n3 = 30;
 	//unsigned n4 = 40;
 	//unsigned n5 = 30;
-
+	//
 	//double r1 = 3.0;
 	//double r2 = 2.5;
 	//double r3 = 4.0;
 	//double r4 = 5.0;
 	//double r5 = 2.5;
-
+	//
 	//double x1 = -6.0;
 	//double y1 = -5.0;
-
+	//
 	//double x2 = 0.0;
 	//double y2 = 0.0;
-
+	//
 	//double x3 = +7.0;
 	//double y3 = +7.0;
-
+	//
 	//double x4 = 9.0;
 	//double y4 = -8.0;
-
+	//
 	//double x5 = 9.0;
 	//double y5 = -8.0;
-
+	//
 	//Vertex * const seed1 = new Vertex(x1, y1);
 	//Vertex * const seed2 = new Vertex(x2, y2);
 	//Vertex * const seed3 = new Vertex(x3, y3);
@@ -263,7 +278,7 @@ int main() {
 	////Vertex * const seed4 = new Vertex(x4, y4);
 	//Vertex * const seed5 = new Vertex(x5, y5);
 
-
+	/*
 	//for (unsigned j = 0; j < n1; j++) {
 
 	//	double const theta = j * 2 * Pi / (n1 - 0);
@@ -308,7 +323,7 @@ int main() {
 
 
 
-	///******* AIRFOIL *******/
+	//------- AIRFOIL -------/
 	//
 	//// airfoil : 200, airfoil3 : 160
 
@@ -333,46 +348,7 @@ int main() {
 
 	//inFile.close();
 	//
-
-	/***********************/
-
-	for (size_t i = 0; i < vertices.size(); i++)
-		pslg.insert_vertex<V_MARKER::FREE>(vertices[i]);
-
-
-	Triangulation<GK> tri(pslg, seeds);
-
-	std::ofstream vertices_txt;
-	std::ofstream edges_txt;
-	std::ofstream triangles_txt;
-
-
-	std::cout << std::endl << "Creating files" << std::endl;
-
-	std::cout << "Vertices..." << std::endl;
-	vertices_txt.open("C:\\Users\\pgali\\Desktop\\verticesPoints.txt");
-	tri.export_vertices(vertices_txt);
-	vertices_txt.close();
-
-	std::cout << "Triangles..." << std::endl;
-	triangles_txt.open("C:\\Users\\pgali\\Desktop\\trianglesPoints.txt");
-	tri.export_triangles(triangles_txt);
-	triangles_txt.close();
-
-	std::cout << "Edges..." << std::endl << std::endl;
-	edges_txt.open("C:\\Users\\pgali\\Desktop\\edgesPoints.txt");
-	tri.export_edges(edges_txt);
-	edges_txt.close();
-
-
-
-	//for (size_t i = 0; i < vertices.size(); i++)
-	//	tri.insert_vertex(vertices[i]);
-
-	//tri.insert_vertex(vertices.begin(), vertices.end());
-
-
-
+*/
 
 
 	//tri.insert_vertex(vertices.begin(), vertices.end());
@@ -415,143 +391,14 @@ int main() {
 	//tri.refinement_ruppert(angle / 180 * Pi);
 	//tri.apply_smoothing<SMOOTHING::LAPLACIAN>(40);
 
-	//cout << "legalizing" << endl;
-	//tri.legalize_vertices();
-
-
-	//tri.make_individual_hole(seed1);
-	////tri.make_individual_hole(seed2);
-	////tri.make_individual_hole(seed3);
-	////tri.make_individual_hole(seed4);
-	//////tri.make_individual_hole(Vertex(3.91, 7.13));
-	////////tri.make_individual_hole(Vertex(3.55, 10.53));
-	//tri.make_individual_hole(Vertex(-5.0, 5.0));
-	//////tri.make_individual_hole(Vertex(8.0, 0.82));
-	//////tri.make_individual_hole(Vertex(6.0, 3.7));
-
-
-
-
-
-	//Mesh mesh(tri);
-
-
-
-	//GNUPLOT gnuplot;
-
-	//std::ofstream triangle_txt;
-
-	//unsigned const nt = mesh.get_number_of_triangles();
-
-	//for (size_t i = 0; i < nt; i++) {
-
-	//	triangle_txt.open("C:\\Users\\pgali\\Desktop\\triangles_txt_files\\trianglesPoints.txt");
-
-	//	for (size_t j = 0; j < i + 1; j++)
-	//		mesh.export_triangle(triangle_txt, mesh.get_triangle(j));
-
-	//	triangle_txt.close();
-
-	//	gnuplot("plot 'C:\\Users\\pgali\\Desktop\\triangles_txt_files\\trianglesPoints.txt' with lines");
-
-	//}
-
-
-
-
-
-
-
-	//std::ofstream vertices_txt;
-	//std::ofstream edges_txt;
-	//std::ofstream triangles_txt;
-
-
-	//std::cout << std::endl << "Creating files" << std::endl;
-	//
-	//std::cout << "Vertices..." << std::endl;
-	//vertices_txt.open("C:\\Users\\pgali\\Desktop\\verticesPoints.txt");
-	//mesh.export_vertices(vertices_txt);
-	//vertices_txt.close();
-
-	//std::cout << "Triangles..." << std::endl;
-	//triangles_txt.open("C:\\Users\\pgali\\Desktop\\trianglesPoints.txt");
-	//mesh.export_triangles(triangles_txt);
-	//triangles_txt.close();
-	//
-	//std::cout << "Edges..." << std::endl << std::endl;
-	//edges_txt.open("C:\\Users\\pgali\\Desktop\\edgesPoints.txt");
-	//mesh.export_edges(edges_txt);
-	//edges_txt.close();
-
-
-
-
-
-
-
-	//std::vector<Edge> edges = tri.get_edges();
-	//std::vector<Vertex_handle> vert = tri.get_vertices_handles();
-
-	//std::cout << std::endl;
-	//std::cout << "/************* Debugging info *************/" << std::endl << std::endl;
-
-
-	//std::cout << "Number of constrained edges + 3 of super triangle: ";
-	//std::cout << std::count_if(edges.begin(), edges.end(), [](Edge e) {return e.is_constrained; }) << std::endl;
-
-	//std::cout << "Number of Neumann edges : ";
-	//std::cout << tri.get_num_neumann_edges() << std::endl;
-
-	//std::cout << "Number of Dirichlet edges : ";
-	//std::cout << tri.get_num_dirichlet_edges() << std::endl;
-
-	//std::cout << "Number of additonal vertices : ";
-	//std::cout << tri.get_new_vertices().size() << std::endl;
-
-	//std::cout << "Number of deleted vertices inside holes : ";
-	//std::cout << tri.num_deleted_vertices << std::endl;
-
-	//std::cout << "\nNumber of constrained vertices : ";
-	//std::cout << std::count_if(vert.begin(), vert.end(), [](auto it) {return (it)->is_constrained == true; }) << std::endl;
-
-	////std::cout << "num_neumann edges : " << tri.num_neumann << std::endl;
-
-	//std::cout << "\n" <<  "/******************************************/" << std::endl << std::endl;
-
-	//tri.clear();
-
-	//vertices.clear();
-
-	//hole1.clear();
-	//hole2.clear();
-	//hole3.clear();
-	//hole4.clear();
-	//hole5.clear();
-
-
-
-
-
-	std::cout << std::endl;
-	//std::cout << "CPU clocks : " << (end - begin) << std::endl << std::endl;
-	system("pause");
-
-
-
-
-
-
-	return 0; 
-
 };
 
 
-template<GENERATION gen> 
-void generate_vertices(std::vector<Vertex > & v) {
+template<Generation gen>
+void generate_vertices(std::vector<GeometricKernel::Vertex > & v) {
 
 
-	if (gen == GENERATION::RANDOM) {
+	if (gen == Generation::Random) {
 
 
 		std::random_device					rd;				// obtain a random number from hardware
@@ -559,52 +406,46 @@ void generate_vertices(std::vector<Vertex > & v) {
 		std::uniform_real_distribution<>	distrX(a1, b1);	// define the range
 		std::uniform_real_distribution<>	distrY(a2, b2);	// define the range
 
-		double x;
-		double y;
-
 		for (int i = 0; i < N_random; i++) {
 
-			x = distrX(eng);
-			y = distrY(eng);
+			double const x = distrX(eng);
+			double const y = distrY(eng);
 
 			v.push_back(Vertex(x, y));
 
 		}
-
 	}
-	else if (gen == GENERATION::STRUCTURED) {
+	else if (gen == Generation::Structured) {
 
-		double x;
-		double y;
 
 		for (int i = 0; i < N1; i++) {
 
-			x = a1 + i * (b1 - a1) / (N1 - 1);
+			double const x = a1 + i * (b1 - a1) / (N1 - 1);
 
 			for (int j = 0; j < N2; j++) {
 
-				y = a2 + j * (b2 - a2) / (N2 - 1);
+				double const y = a2 + j * (b2 - a2) / (N2 - 1);
 
 				v.push_back(Vertex(x, y));
 
 			}
 		}
 
-		/*
-		for (int i = 0; i < N1; i++) {
-
-			
-			double r = 0.2 + i * 10.0 / (N1 - 1);
-
-			for (int j = 0; j < N2; j++) {
-
-				double theta = j*2*3.14 / (N2);
-
-				v.push_back(new Vertex(r*sin(theta), r*cos(theta)));
-
-			}
-		}
-		*/
+		
+		//for (int i = 0; i < N1; i++) {
+		//
+		//	
+		//	double r = 0.2 + i * 10.0 / (N1 - 1);
+		//
+		//	for (int j = 0; j < N2; j++) {
+		//
+		//		double theta = j*2*3.14 / (N2);
+		//
+		//		v.push_back(new Vertex(r*sin(theta), r*cos(theta)));
+		//
+		//	}
+		//}
+		
 
 	}
 
